@@ -8,6 +8,7 @@ from unittest import mock
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import voos  # noqa: E402
 
+
 HOJE = date(2026, 10, 6)
 CFG = voos.ler_json(voos.CONFIG, None)
 
@@ -91,7 +92,7 @@ class Mensagens(unittest.TestCase):
         m = voos.mensagens(f, CFG)
         self.assertEqual(len(m), 2)
         self.assertTrue(m[0]["title"].startswith("🇹🇭 Phuket desde 360 €"))
-        self.assertIn("Madrid · 12–26 nov (14 dias) · 360 € · 1 escala · EK", m[0]["message"])
+        self.assertIn("Madrid · 12–26 nov (14 dias) · 360 € · 1 escala · Emirates", m[0]["message"])
         self.assertIn("Lisboa · 10–24 nov", m[0]["message"])
         self.assertEqual(m[0]["priority"], 4)
         self.assertEqual(m[1]["priority"], 3)
@@ -160,7 +161,8 @@ class Execucao(unittest.TestCase):
         enviados = []
         voos.correr(CFG, estado, "tok", "canal", hoje=HOJE, simular=simular,
                     buscar=lambda c, t, h, log: (list(bilhetes), list(erros)),
-                    mandar=lambda m, t, s: enviados.append(m), log=lambda *a: None)
+                    mandar=lambda m, t, s: enviados.append(m), log=lambda *a: None,
+                    companhias=lambda log: None)
         return enviados
 
     def test_fluxo_completo(self):
@@ -192,7 +194,7 @@ class Execucao(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             voos.correr(CFG, estado, "tok", "canal", hoje=HOJE,
                         buscar=lambda c, t, h, log: ([bilhete()], []), mandar=falha,
-                        log=lambda *a: None)
+                        log=lambda *a: None, companhias=lambda log: None)
         self.assertEqual(estado.get("avisados", {}), {})
 
 
@@ -207,8 +209,58 @@ class Registo(unittest.TestCase):
         r = voos.mais_baratos(b, cfg, HOJE)
         self.assertEqual([x["preco"] for x in r], [450, 480, 520])
         self.assertEqual(voos.resumo(r[0], cfg),
-                         "450 € · Lisboa → Phuket · 10–24 nov (14 dias) · 1 escala · EK")
+                         "450 € · Lisboa → Phuket · 10–24 nov (14 dias) · 1 escala · Emirates")
         self.assertEqual(voos.filtrar(b, cfg, HOJE), [])
+
+
+class Companhias(unittest.TestCase):
+    def setUp(self):
+        self.antes = dict(voos.COMPANHIAS)
+
+    def tearDown(self):
+        voos.COMPANHIAS.clear()
+        voos.COMPANHIAS.update(self.antes)
+
+    def resp(self, corpo):
+        class R:
+            def read(s): return json.dumps(corpo).encode()
+            def __enter__(s): return s
+            def __exit__(s, *a): return False
+        return lambda req, timeout: R()
+
+    def test_lista_do_travelpayouts(self):
+        lista = [{"code": "XX", "name": "Outro nome", "name_translations": {"en": "Xpto Air"}},
+                 {"code": "HU", "name_translations": {"en": "Hainan Airlines Holding Co"}},
+                 {"code": None, "name": "sem código"}, "lixo"]
+        with mock.patch("urllib.request.urlopen", self.resp(lista)):
+            voos.carregar_companhias(log=lambda *a: None)
+        self.assertEqual(voos.nome_cia("XX"), "Xpto Air")
+        self.assertEqual(voos.nome_cia("HU"), "Hainan Airlines")  # a de reserva ganha (mais curta)
+        self.assertEqual(voos.nome_cia("ZZ"), "ZZ")                # desconhecida: fica o código
+
+    def test_sem_rede_usa_a_reserva(self):
+        msgs = []
+
+        def falha(req, timeout):
+            raise OSError("sem rede")
+
+        with mock.patch("urllib.request.urlopen", falha):
+            voos.carregar_companhias(log=msgs.append)
+        self.assertIn("reserva", msgs[0])
+        self.assertEqual(voos.nome_cia("3U"), "Sichuan Airlines")
+
+    def test_so_companhias_conhecidas_nao_e_lista_vazia(self):
+        msgs = []
+        with mock.patch("urllib.request.urlopen", self.resp([{"code": "EK", "name": "Emirates Group"}])):
+            voos.carregar_companhias(log=msgs.append)
+        self.assertEqual(msgs, [])
+        self.assertEqual(voos.nome_cia("EK"), "Emirates")
+
+    def test_formato_inesperado(self):
+        msgs = []
+        with mock.patch("urllib.request.urlopen", self.resp({"erro": 1})):
+            voos.carregar_companhias(log=msgs.append)
+        self.assertIn("reserva", msgs[0])
 
 
 class Exemplo(unittest.TestCase):
@@ -217,7 +269,8 @@ class Exemplo(unittest.TestCase):
         b = [bilhete(d="DPS", preco=420), bilhete(d="BKK", preco=470), bilhete(d="BKK", preco=455,
              ida="2026-12-01", volta="2026-12-15"), bilhete(d="HKT", preco=490)]
         rc = voos.exemplo(CFG, "tok", "canal", hoje=HOJE, buscar=lambda c, t, h, log: (b, []),
-                          mandar=lambda m, t, s: enviados.append(m), log=lambda *a: None)
+                          mandar=lambda m, t, s: enviados.append(m), log=lambda *a: None,
+                          companhias=lambda log: None)
         self.assertEqual(rc, 0)
         self.assertEqual(len(enviados), 1)
         self.assertTrue(enviados[0]["title"].startswith("(Exemplo) 🇹🇭 Banguecoque desde 455 €"))

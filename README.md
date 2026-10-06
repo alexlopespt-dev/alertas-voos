@@ -2,7 +2,7 @@
 
 Vigia voos de **ida e volta** de Lisboa, Porto, Faro, Madrid e Barcelona para a **Tailândia** e para as praias do Sudeste Asiático (Vietname, Bali, Filipinas, Malásia, Sri Lanka, Maldivas). Quando aparece um voo **abaixo de 400 €**, recebes uma notificação no telemóvel com:
 
-- o preço, as datas e a companhia aérea;
+- o preço, as datas e o nome da companhia aérea (o tipo de avião a API não dá: vê-se ao abrir o voo no Google Flights);
 - até 5 datas para esse destino;
 - botões **Aviasales**, **Google Flights** e **Skyscanner**, e links para **Trip.com**, **Kayak** e **Momondo**, todos já com a mesma rota e as mesmas datas, para comparares onde está mais barato.
 

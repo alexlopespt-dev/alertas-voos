@@ -82,6 +82,65 @@ def euros(p):
     return f"{int(round(p))} €"
 
 
+# ---------------------------------------------------------------- companhias aéreas
+
+AIRLINES_URL = "https://api.travelpayouts.com/data/en/airlines.json"
+
+# Reserva, se a lista do Travelpayouts não carregar (e nomes mais curtos para as habituais).
+CIAS = {
+    "EK": "Emirates", "QR": "Qatar Airways", "EY": "Etihad", "TK": "Turkish Airlines",
+    "SV": "Saudia", "WY": "Oman Air", "GF": "Gulf Air", "KU": "Kuwait Airways",
+    "MS": "EgyptAir", "ET": "Ethiopian", "RJ": "Royal Jordanian", "J9": "Jazeera Airways",
+    "FZ": "flydubai", "G9": "Air Arabia", "XY": "flynas", "PC": "Pegasus",
+    "LH": "Lufthansa", "LX": "Swiss", "OS": "Austrian", "AF": "Air France", "KL": "KLM",
+    "BA": "British Airways", "IB": "Iberia", "UX": "Air Europa", "VY": "Vueling",
+    "TP": "TAP Air Portugal", "FR": "Ryanair", "U2": "easyJet", "W6": "Wizz Air",
+    "AY": "Finnair", "SK": "SAS", "LO": "LOT", "AZ": "ITA Airways", "DE": "Condor",
+    "EW": "Eurowings", "DY": "Norwegian", "A3": "Aegean", "LY": "El Al", "SU": "Aeroflot",
+    "KC": "Air Astana", "HY": "Uzbekistan Airways", "J2": "Azerbaijan Airlines",
+    "TG": "Thai Airways", "FD": "Thai AirAsia", "SL": "Thai Lion Air", "PG": "Bangkok Airways",
+    "DD": "Nok Air", "VZ": "Thai Vietjet", "WE": "Thai Smile",
+    "VN": "Vietnam Airlines", "VJ": "Vietjet", "QH": "Bamboo Airways",
+    "SQ": "Singapore Airlines", "TR": "Scoot", "MH": "Malaysia Airlines", "AK": "AirAsia",
+    "D7": "AirAsia X", "OD": "Batik Air Malaysia", "GA": "Garuda Indonesia", "JT": "Lion Air",
+    "ID": "Batik Air", "PR": "Philippine Airlines", "5J": "Cebu Pacific", "Z2": "AirAsia Filipinas",
+    "CX": "Cathay Pacific", "UO": "HK Express", "CI": "China Airlines", "BR": "EVA Air",
+    "CA": "Air China", "MU": "China Eastern", "CZ": "China Southern", "HU": "Hainan Airlines",
+    "3U": "Sichuan Airlines", "ZH": "Shenzhen Airlines", "MF": "Xiamen Airlines",
+    "FM": "Shanghai Airlines", "HO": "Juneyao Air", "NH": "ANA", "JL": "Japan Airlines",
+    "KE": "Korean Air", "OZ": "Asiana", "AI": "Air India", "6E": "IndiGo",
+    "UL": "SriLankan Airlines", "PK": "PIA", "K6": "Cambodia Angkor Air", "QV": "Lao Airlines",
+    "BI": "Royal Brunei", "Q2": "Maldivian", "QF": "Qantas",
+}
+COMPANHIAS = dict(CIAS)
+
+
+def carregar_companhias(log=print):
+    """Junta a lista completa do Travelpayouts (sem token) às de reserva. Nunca falha."""
+    try:
+        req = urllib.request.Request(AIRLINES_URL, headers={"User-Agent": "alertas-voos/1.0"})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            lista = json.loads(r.read().decode("utf-8"))
+        n = 0
+        for a in lista if isinstance(lista, list) else []:
+            if not isinstance(a, dict):
+                continue
+            cod = a.get("code") or a.get("iata")
+            nome = (a.get("name_translations") or {}).get("en") or a.get("name")
+            if cod and nome:
+                n += 1
+                if cod not in CIAS:
+                    COMPANHIAS[str(cod)] = str(nome)
+        if not n:
+            log("Lista de companhias vazia: uso só a de reserva.")
+    except Exception as e:  # noqa: BLE001 — os nomes são um extra, não podem parar os avisos
+        log(f"Sem a lista de companhias ({e}): uso só a de reserva.")
+
+
+def nome_cia(cod):
+    return COMPANHIAS.get(cod, cod)
+
+
 # ---------------------------------------------------------------- API de preços
 
 def pedir(params, token, tentativas=3):
@@ -248,7 +307,7 @@ def resumo(f, cfg):
     ida, volta = dia(f["ida"]), dia(f["volta"])
     return (f"{euros(f['preco'])} · {cfg['origens'].get(f['o'], f['o'])} → "
             f"{destinos[f['d']]['nome']} · {intervalo(ida, volta)} ({f['dias']} dias) · "
-            f"{escalas_txt(f['escalas'])}" + (f" · {f['cia']}" if f["cia"] else ""))
+            f"{escalas_txt(f['escalas'])}" + (f" · {nome_cia(f['cia'])}" if f["cia"] else ""))
 
 
 def link_google(f):
@@ -296,7 +355,7 @@ def mensagens(lista, cfg, maximo=None):
             t = (f"{nomes_o.get(f['o'], f['o'])} · {intervalo(ida, volta)} ({f['dias']} dias) · "
                  f"{euros(f['preco'])} · {escalas_txt(f['escalas'])}")
             if f["cia"]:
-                t += f" · {f['cia']}"
+                t += f" · {nome_cia(f['cia'])}"
             if f.get("antes"):
                 t += f" (era {euros(f['antes'])})"
             linhas.append(t)
@@ -345,11 +404,13 @@ def enviar(msg, topico, servidor=None):
 # ---------------------------------------------------------------- principal
 
 def correr(cfg, estado, token, topico, servidor=None, hoje=None, simular=False,
-           buscar=procurar, mandar=enviar, log=print):
+           buscar=procurar, mandar=enviar, log=print, companhias=carregar_companhias):
     hoje = hoje or date.today()
     limpar_estado(estado, hoje)
     log(f"A procurar {len(cfg['origens'])} origens × {len(cfg['destinos'])} destinos…")
     bilhetes, erros = buscar(cfg, token, hoje, log=log)
+    if bilhetes:
+        companhias(log=log)
     ofertas = filtrar(bilhetes, cfg, hoje)
     lista = novas(ofertas, estado, cfg)
     log(f"{len(bilhetes)} preços recebidos, {len(ofertas)} abaixo do limite, {len(lista)} novos.")
@@ -388,11 +449,13 @@ def correr(cfg, estado, token, topico, servidor=None, hoje=None, simular=False,
 
 
 def exemplo(cfg, token, topico, servidor=None, hoje=None, buscar=procurar, mandar=enviar,
-            log=print):
+            log=print, companhias=carregar_companhias):
     """Envia o voo mais barato do momento (mesmo acima do limite) para ver como fica o aviso.
     Não grava nada no estado."""
     hoje = hoje or date.today()
     bilhetes, erros = buscar(cfg, token, hoje, log=lambda *a: None)
+    if bilhetes:
+        companhias(log=log)
     lista = mais_baratos(bilhetes, cfg, hoje, n=10 ** 6)
     tai = [f for f in lista if {d["iata"]: d for d in cfg["destinos"]}[f["d"]].get("prioridade")]
     if not (tai or lista):
