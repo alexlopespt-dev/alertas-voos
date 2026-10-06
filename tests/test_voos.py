@@ -95,8 +95,30 @@ class Mensagens(unittest.TestCase):
         self.assertIn("Lisboa · 10–24 nov", m[0]["message"])
         self.assertEqual(m[0]["priority"], 4)
         self.assertEqual(m[1]["priority"], 3)
-        self.assertEqual([a["label"] for a in m[0]["actions"]], ["Aviasales", "Google Flights"])
+        self.assertEqual([a["label"] for a in m[0]["actions"]], ["Aviasales", "Google Flights", "Skyscanner"])
         self.assertIn("google.com/travel/flights", m[0]["actions"][1]["url"])
+        # os outros sites vão no texto, com a rota e as datas do mais barato
+        self.assertIn("Comparar (Madrid, 12–26 nov):", m[0]["message"])
+        self.assertIn("Trip.com: https://pt.trip.com/flights/showfarefirst?dcity=mad&acity=hkt"
+                      "&ddate=2026-11-12&rdate=2026-11-26", m[0]["message"])
+        self.assertIn("Kayak: https://www.kayak.pt/flights/MAD-HKT/2026-11-12/2026-11-26", m[0]["message"])
+        self.assertIn("Momondo: https://www.momondo.pt/flight-search/MAD-HKT/2026-11-12/2026-11-26",
+                      m[0]["message"])
+        self.assertLess(len(json.dumps(m[0]).encode()), 4000)  # limite da ntfy: 4096 bytes
+
+    def test_links_de_todos_os_sites(self):
+        f = voos.filtrar([bilhete(o="LIS", d="BKK", ida="2027-01-05", volta="2027-01-20")], CFG, HOJE)[0]
+        lk = voos.links(f)
+        self.assertEqual(list(lk), ["Aviasales", "Google Flights", "Skyscanner", "Trip.com", "Kayak", "Momondo"])
+        self.assertEqual(lk["Skyscanner"], "https://www.skyscanner.pt/transporte/voos/lis/bkk/270105/270120/"
+                                           "?adultsv2=1&cabinclass=economy&rtn=1")
+        self.assertIn("triptype=rt", lk["Trip.com"])
+        for u in lk.values():
+            self.assertTrue(u.startswith("https://"), u)
+        # sem link do Aviasales: Google Flights passa a ser o primeiro botão
+        m = voos.mensagens([dict(f, link="")], CFG)[0]
+        self.assertEqual([a["label"] for a in m["actions"]], ["Google Flights", "Skyscanner", "Trip.com"])
+        self.assertIn("Kayak: ", m["message"])
 
     def test_muito_barato_na_tailandia_e_urgente(self):
         m = voos.mensagens(voos.filtrar([bilhete(preco=320)], CFG, HOJE), CFG)
@@ -187,6 +209,25 @@ class Registo(unittest.TestCase):
         self.assertEqual(voos.resumo(r[0], cfg),
                          "450 € · Lisboa → Phuket · 10–24 nov (14 dias) · 1 escala · EK")
         self.assertEqual(voos.filtrar(b, cfg, HOJE), [])
+
+
+class Exemplo(unittest.TestCase):
+    def test_envia_o_mais_barato_da_tailandia_sem_gravar(self):
+        enviados = []
+        b = [bilhete(d="DPS", preco=420), bilhete(d="BKK", preco=470), bilhete(d="BKK", preco=455,
+             ida="2026-12-01", volta="2026-12-15"), bilhete(d="HKT", preco=490)]
+        rc = voos.exemplo(CFG, "tok", "canal", hoje=HOJE, buscar=lambda c, t, h, log: (b, []),
+                          mandar=lambda m, t, s: enviados.append(m), log=lambda *a: None)
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(enviados), 1)
+        self.assertTrue(enviados[0]["title"].startswith("(Exemplo) 🇹🇭 Banguecoque desde 455 €"))
+        self.assertIn("470 €", enviados[0]["message"])
+        self.assertEqual(enviados[0]["priority"], 3)
+
+    def test_sem_precos(self):
+        rc = voos.exemplo(CFG, "tok", "canal", hoje=HOJE, buscar=lambda c, t, h, log: ([], ["x"]),
+                          mandar=lambda *a: self.fail("não devia enviar"), log=lambda *a: None)
+        self.assertEqual(rc, 1)
 
 
 class Api(unittest.TestCase):

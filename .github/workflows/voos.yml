@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       modo:
-        description: "procurar = normal | simular = mostra sem avisar | teste = só envia uma notificação de teste"
+        description: "procurar = normal | simular = mostra sem avisar | teste = notificação de teste | exemplo = envia o voo mais barato do momento"
         type: choice
-        options: [procurar, simular, teste]
+        options: [procurar, simular, teste, exemplo]
         default: procurar
 
 permissions:
@@ -42,6 +42,7 @@ jobs:
           case "$MODO" in
             simular) python voos.py --simular ;;
             teste)   python voos.py --teste ;;
+            exemplo) python voos.py --exemplo ;;
             *)       python voos.py ;;
           esac
 

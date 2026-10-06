@@ -4,7 +4,7 @@ Vigia voos de **ida e volta** de Lisboa, Porto, Faro, Madrid e Barcelona para a 
 
 - o preço, as datas e a companhia aérea;
 - até 5 datas para esse destino;
-- dois botões: **Aviasales**, para comprar, e **Google Flights**, para confirmar o preço.
+- botões **Aviasales**, **Google Flights** e **Skyscanner**, e links para **Trip.com**, **Kayak** e **Momondo**, todos já com a mesma rota e as mesmas datas, para comparares onde está mais barato.
 
 Corre sozinho no GitHub de 3 em 3 horas. Não precisas de servidor e não pagas nada.
 
@@ -44,7 +44,14 @@ No repositório: **Settings → Secrets and variables → Actions → New reposi
 Em **Actions → Alertas de voos → Run workflow**:
 - **teste**: deve chegar logo uma notificação "Alertas de voos ligados".
 - **simular**: procura os voos e mostra no registo o que avisaria, sem enviar nada.
+- **exemplo**: envia o voo mais barato do momento (mesmo acima do limite), para veres como fica o aviso e experimentares os links.
 - **procurar**: é o modo normal, que também corre sozinho de 3 em 3 horas.
+
+No **simular** (e em todas as execuções), o fim do passo "Procurar voos" mostra os 8 voos mais baratos do momento, mesmo acima do limite.
+
+## De onde vêm os preços
+
+Da API de dados do Aviasales (Travelpayouts): preços que o Aviasales encontrou nos últimos 2–7 dias, comparando companhias aéreas e agências. Os outros sites (Trip.com, Skyscanner, Kayak, Momondo…) não têm API aberta, por isso entram como links de comparação em cada aviso.
 
 ## Mudar as regras (`config.json`)
 

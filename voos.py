@@ -257,6 +257,24 @@ def link_google(f):
         {"q": q, "curr": "EUR", "hl": "pt-PT"})
 
 
+def links(f):
+    """Pesquisa já preenchida (mesma rota e datas) em cada site, pela ordem dos botões."""
+    o, d, ida, volta = f["o"], f["d"], f["ida"], f["volta"]
+    sky = lambda x: x[2:].replace("-", "")  # 2026-11-25 -> 261125
+    out = {}
+    if f.get("link"):
+        out["Aviasales"] = f["link"]
+    out["Google Flights"] = link_google(f)
+    out["Skyscanner"] = (f"https://www.skyscanner.pt/transporte/voos/{o.lower()}/{d.lower()}/"
+                         f"{sky(ida)}/{sky(volta)}/?adultsv2=1&cabinclass=economy&rtn=1")
+    out["Trip.com"] = "https://pt.trip.com/flights/showfarefirst?" + urllib.parse.urlencode({
+        "dcity": o.lower(), "acity": d.lower(), "ddate": ida, "rdate": volta,
+        "triptype": "rt", "class": "y", "quantity": 1, "locale": "pt-PT", "curr": "EUR"})
+    out["Kayak"] = f"https://www.kayak.pt/flights/{o}-{d}/{ida}/{volta}?sort=price_a"
+    out["Momondo"] = f"https://www.momondo.pt/flight-search/{o}-{d}/{ida}/{volta}?sort=price_a"
+    return out
+
+
 def mensagens(lista, cfg, maximo=None):
     """Agrupa por destino: um aviso por destino com as melhores datas. Tailândia primeiro."""
     destinos = {d["iata"]: d for d in cfg["destinos"]}
@@ -285,10 +303,12 @@ def mensagens(lista, cfg, maximo=None):
         if len(fs) > 5:
             linhas.append(f"+ {len(fs) - 5} outras datas")
         linhas.append("Preço de pesquisas recentes: confirma antes de comprar.")
-        acoes = []
-        if b["link"]:
-            acoes.append({"action": "view", "label": "Aviasales", "url": b["link"], "clear": False})
-        acoes.append({"action": "view", "label": "Google Flights", "url": link_google(b), "clear": False})
+        lk = list(links(b).items())
+        # a ntfy só mostra 3 botões: os outros sites vão no texto
+        acoes = [{"action": "view", "label": n, "url": u, "clear": False} for n, u in lk[:3]]
+        linhas.append("")
+        linhas.append(f"Comparar ({nomes_o.get(b['o'], b['o'])}, {intervalo(dia(b['ida']), dia(b['volta']))}):")
+        linhas += [f"{n}: {u}" for n, u in lk[3:]]
         msgs.append({
             "title": titulo,
             "message": "\n".join(linhas),
@@ -367,6 +387,29 @@ def correr(cfg, estado, token, topico, servidor=None, hoje=None, simular=False,
     return msgs, erros, bilhetes
 
 
+def exemplo(cfg, token, topico, servidor=None, hoje=None, buscar=procurar, mandar=enviar,
+            log=print):
+    """Envia o voo mais barato do momento (mesmo acima do limite) para ver como fica o aviso.
+    Não grava nada no estado."""
+    hoje = hoje or date.today()
+    bilhetes, erros = buscar(cfg, token, hoje, log=lambda *a: None)
+    lista = mais_baratos(bilhetes, cfg, hoje, n=10 ** 6)
+    tai = [f for f in lista if {d["iata"]: d for d in cfg["destinos"]}[f["d"]].get("prioridade")]
+    if not (tai or lista):
+        log("Sem preços para o exemplo." + (f" Erro: {erros[0]}" if erros else ""))
+        return 1
+    escolhido = (tai or lista)[0]
+    sem_limite = dict(cfg, preco_max=10 ** 9,
+                      destinos=[{k: v for k, v in d.items() if k != "preco_max"} for d in cfg["destinos"]])
+    m = mensagens([f for f in lista if f["d"] == escolhido["d"]], sem_limite)[0]
+    m["title"] = "(Exemplo) " + m["title"]
+    m["priority"] = 3
+    log(f">>> {m['title']}\n{m['message']}")
+    mandar(m, topico, servidor)
+    log("Exemplo enviado.")
+    return 0
+
+
 def main(argv):
     cfg = ler_json(CONFIG, None)
     if not cfg:
@@ -375,6 +418,11 @@ def main(argv):
     topico = os.environ.get("NTFY_TOPICO", "").strip()
     servidor = os.environ.get("NTFY_SERVIDOR", "").strip() or None
     simular = "--simular" in argv
+
+    if "--exemplo" in argv:
+        if not token or not topico:
+            sys.exit("Faltam o TRAVELPAYOUTS_TOKEN e/ou o NTFY_TOPICO")
+        return exemplo(cfg, token, topico, servidor)
 
     if "--teste" in argv:
         if not topico:
