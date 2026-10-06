@@ -174,6 +174,21 @@ class Execucao(unittest.TestCase):
         self.assertEqual(estado.get("avisados", {}), {})
 
 
+class Registo(unittest.TestCase):
+    def test_mais_baratos_ignora_o_limite_mas_mantem_as_regras(self):
+        b = [bilhete(preco=520), bilhete(d="HKT", preco=450), bilhete(preco=300, volta="2026-11-12"),
+             bilhete(d="MLE", preco=480)]
+        cfg = json.loads(json.dumps(CFG))
+        for d in cfg["destinos"]:
+            if d["iata"] == "MLE":
+                d["preco_max"] = 100
+        r = voos.mais_baratos(b, cfg, HOJE)
+        self.assertEqual([x["preco"] for x in r], [450, 480, 520])
+        self.assertEqual(voos.resumo(r[0], cfg),
+                         "450 € · Lisboa → Phuket · 10–24 nov (14 dias) · 1 escala · EK")
+        self.assertEqual(voos.filtrar(b, cfg, HOJE), [])
+
+
 class Api(unittest.TestCase):
     def test_pedidos_e_parametros(self):
         pedidos = []

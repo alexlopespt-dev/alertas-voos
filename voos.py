@@ -234,7 +234,22 @@ def limpar_estado(estado, hoje):
     return estado
 
 
+def mais_baratos(bilhetes, cfg, hoje, n=8):
+    """Os n mais baratos com as mesmas regras mas sem limite de preço (só para o registo)."""
+    sem_limite = dict(cfg, preco_max=10 ** 9,
+                      destinos=[{k: v for k, v in d.items() if k != "preco_max"} for d in cfg["destinos"]])
+    return filtrar(bilhetes, sem_limite, hoje)[:n]
+
+
 # ---------------------------------------------------------------- mensagens
+
+def resumo(f, cfg):
+    destinos = {d["iata"]: d for d in cfg["destinos"]}
+    ida, volta = dia(f["ida"]), dia(f["volta"])
+    return (f"{euros(f['preco'])} · {cfg['origens'].get(f['o'], f['o'])} → "
+            f"{destinos[f['d']]['nome']} · {intervalo(ida, volta)} ({f['dias']} dias) · "
+            f"{escalas_txt(f['escalas'])}" + (f" · {f['cia']}" if f["cia"] else ""))
+
 
 def link_google(f):
     q = f"Flights to {f['d']} from {f['o']} on {f['ida']} through {f['volta']}"
@@ -320,6 +335,9 @@ def correr(cfg, estado, token, topico, servidor=None, hoje=None, simular=False,
     log(f"{len(bilhetes)} preços recebidos, {len(ofertas)} abaixo do limite, {len(lista)} novos.")
     for e in erros[:10]:
         log("  erro: " + e)
+    log("Mais baratos agora (mesmo acima do limite):")
+    for f in mais_baratos(bilhetes, cfg, hoje):
+        log("  " + resumo(f, cfg))
 
     msgs = mensagens(lista, cfg, int(cfg.get("max_avisos_por_execucao", 6)))
     agora = datetime.now(timezone.utc).isoformat(timespec="seconds")
