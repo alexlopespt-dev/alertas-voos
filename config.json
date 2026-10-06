@@ -1,0 +1,47 @@
+{
+  "preco_max": 400,
+  "moeda": "eur",
+  "dias_min": 7,
+  "dias_max": 30,
+  "partida_min_dias": 7,
+  "partida_max_meses": 11,
+  "escalas_max": 2,
+  "horas_viagem_max": 30,
+  "realerta_descida_pct": 5,
+  "max_avisos_por_execucao": 6,
+  "por_mes": false,
+
+  "origens": {
+    "LIS": "Lisboa",
+    "OPO": "Porto",
+    "FAO": "Faro",
+    "MAD": "Madrid",
+    "BCN": "Barcelona"
+  },
+
+  "destinos": [
+    {"iata": "BKK", "nome": "Banguecoque", "pais": "Tailândia", "prioridade": true},
+    {"iata": "HKT", "nome": "Phuket", "pais": "Tailândia", "prioridade": true},
+    {"iata": "KBV", "nome": "Krabi", "pais": "Tailândia", "prioridade": true},
+    {"iata": "USM", "nome": "Koh Samui", "pais": "Tailândia", "prioridade": true},
+
+    {"iata": "DAD", "nome": "Da Nang", "pais": "Vietname"},
+    {"iata": "CXR", "nome": "Nha Trang", "pais": "Vietname"},
+    {"iata": "PQC", "nome": "Phu Quoc", "pais": "Vietname"},
+    {"iata": "SGN", "nome": "Ho Chi Minh", "pais": "Vietname"},
+
+    {"iata": "DPS", "nome": "Bali", "pais": "Indonésia"},
+    {"iata": "LOP", "nome": "Lombok", "pais": "Indonésia"},
+
+    {"iata": "CEB", "nome": "Cebu", "pais": "Filipinas"},
+    {"iata": "PPS", "nome": "Palawan", "pais": "Filipinas"},
+    {"iata": "MNL", "nome": "Manila", "pais": "Filipinas"},
+
+    {"iata": "LGK", "nome": "Langkawi", "pais": "Malásia"},
+    {"iata": "PEN", "nome": "Penang", "pais": "Malásia"},
+    {"iata": "KUL", "nome": "Kuala Lumpur", "pais": "Malásia"},
+
+    {"iata": "CMB", "nome": "Colombo", "pais": "Sri Lanka"},
+    {"iata": "MLE", "nome": "Maldivas", "pais": "Maldivas"}
+  ]
+}
