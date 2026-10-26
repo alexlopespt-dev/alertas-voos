@@ -9,7 +9,7 @@
   "horas_viagem_max": 30,
   "realerta_descida_pct": 5,
   "max_avisos_por_execucao": 6,
-  "por_mes": false,
+  "por_mes": true,
 
   "origens": {
     "LIS": "Lisboa",

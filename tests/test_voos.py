@@ -291,8 +291,9 @@ class Api(unittest.TestCase):
             pedidos.append(params)
             return [{"price": 1}] if params["destination"] == "BKK" else []
 
+        cfg = dict(CFG, por_mes=False)
         with mock.patch.object(voos, "pedir", falso):
-            b, e = voos.procurar(CFG, "tok", HOJE, pausa=0, log=lambda *a: None)
+            b, e = voos.procurar(cfg, "tok", HOJE, pausa=0, log=lambda *a: None)
         n = len(CFG["origens"]) * len(CFG["destinos"])
         self.assertEqual(len(pedidos), n)
         self.assertEqual(len(b), len(CFG["origens"]))
