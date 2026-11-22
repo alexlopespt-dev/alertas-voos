@@ -10,7 +10,8 @@ import voos  # noqa: E402
 
 
 HOJE = date(2026, 10, 6)
-CFG = voos.ler_json(voos.CONFIG, None)
+# os testes usam datas de novembro: sem o filtro de meses do config.json
+CFG = dict(voos.ler_json(voos.CONFIG, None), meses_partida=[])
 
 
 def bilhete(o="LIS", d="BKK", preco=350, ida="2026-11-10", volta="2026-11-24", **kw):
@@ -82,6 +83,78 @@ class Repeticoes(unittest.TestCase):
                                "b": {"preco": 1, "ida": "2026-12-01"}}}
         voos.limpar_estado(estado, HOJE)
         self.assertEqual(list(estado["avisados"]), ["b"])
+
+
+class Meses(unittest.TestCase):
+    def test_so_partidas_nos_meses_escolhidos(self):
+        cfg = dict(CFG, meses_partida=[5, 6])
+        b = [bilhete(), bilhete(ida="2027-05-20", volta="2027-06-03"),
+             bilhete(ida="2027-06-28", volta="2027-07-10")]
+        self.assertEqual([f["ida"] for f in voos.filtrar(b, cfg, HOJE)], ["2027-05-20", "2027-06-28"])
+
+    def test_pesquisa_so_esses_meses(self):
+        cfg = dict(CFG, por_mes=True, meses_partida=[5, 6])
+        self.assertEqual(voos.meses_a_pesquisar(cfg, HOJE), ["2027-05", "2027-06"])
+
+
+class Promocoes(unittest.TestCase):
+    def historico(self, preco, dias=5, rota="LIS-BKK-2026-11"):
+        return {rota: {f"2026-10-0{i}": preco for i in range(1, dias + 1)}}
+
+    def test_preco_habitual_precisa_de_historico(self):
+        self.assertEqual(voos.habituais({"historico": self.historico(600, dias=4)}, CFG, HOJE), {})
+        self.assertEqual(voos.habituais({"historico": self.historico(600)}, CFG, HOJE),
+                         {"LIS-BKK-2026-11": 600})
+
+    def test_hoje_nao_conta_para_o_habitual(self):
+        h = self.historico(600, dias=4)
+        h["LIS-BKK-2026-11"]["2026-10-06"] = 450
+        self.assertEqual(voos.habituais({"historico": h}, CFG, HOJE), {})
+
+    def test_promocao_acima_do_limite(self):
+        refs = {"LIS-BKK-2026-11": 600}
+        todas = voos.filtrar([bilhete(preco=470), bilhete(preco=490, volta="2026-11-25")],
+                             voos.sem_limite(CFG), HOJE)
+        r = voos.escolher(todas, CFG, refs)
+        self.assertEqual([(f["preco"], f.get("habitual")) for f in r], [(470, 600)])  # 490: só −18 %
+
+    def test_barato_sem_historico_continua_a_avisar(self):
+        todas = voos.filtrar([bilhete(preco=350), bilhete(preco=450, volta="2026-11-25")],
+                             voos.sem_limite(CFG), HOJE)
+        self.assertEqual([f["preco"] for f in voos.escolher(todas, CFG, {})], [350])
+
+    def test_mensagem_de_promocao(self):
+        f = voos.filtrar([bilhete(preco=450)], voos.sem_limite(CFG), HOJE)[0]
+        m = voos.mensagens([dict(f, habitual=600)], CFG)[0]
+        self.assertTrue(m["title"].startswith("🔥 Promoção: 🇹🇭 Banguecoque desde 450 €"), m["title"])
+        self.assertIn("(−25 %)", m["title"])
+        self.assertIn("habitual ~600 €", m["message"])
+        self.assertEqual(m["priority"], 5)
+        m = voos.mensagens([dict(f, d="DPS", habitual=600)], CFG)[0]
+        self.assertEqual(m["priority"], 4)
+
+    def test_guarda_o_mais_barato_de_cada_dia_e_limpa(self):
+        estado = {"historico": {"LIS-BKK-2026-09": {"2026-09-01": 500},
+                                "LIS-BKK-2026-11": {"2026-08-01": 500, "2026-10-05": 610}}}
+        voos.limpar_estado(estado, HOJE)
+        self.assertEqual(estado["historico"], {"LIS-BKK-2026-11": {"2026-10-05": 610}})
+        todas = voos.filtrar([bilhete(preco=640), bilhete(preco=620, volta="2026-11-25")],
+                             voos.sem_limite(CFG), HOJE)
+        voos.guardar_historico(estado, todas, HOJE)
+        self.assertEqual(estado["historico"]["LIS-BKK-2026-11"], {"2026-10-05": 610, "2026-10-06": 620})
+
+    def test_fluxo_avisa_promocao_uma_vez(self):
+        estado = {"historico": self.historico(600)}
+        enviados = []
+        for _ in range(2):
+            voos.correr(CFG, estado, "tok", "canal", hoje=HOJE,
+                        buscar=lambda c, t, h, log: ([bilhete(preco=460)], []),
+                        mandar=lambda m, t, s: enviados.append(m), log=lambda *a: None,
+                        companhias=lambda log: None)
+        self.assertEqual(len(enviados), 1)
+        self.assertIn("Promoção", enviados[0]["title"])
+        self.assertEqual(estado["ultimo_resumo"]["promocoes"], 1)
+        self.assertEqual(estado["historico"]["LIS-BKK-2026-11"]["2026-10-06"], 460)
 
 
 class Mensagens(unittest.TestCase):

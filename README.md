@@ -1,6 +1,6 @@
 # Alertas de voos ✈️🏝️
 
-Vigia voos de **ida e volta** de Lisboa, Porto, Faro, Madrid e Barcelona para a **Tailândia** e para as praias do Sudeste Asiático (Vietname, Bali, Filipinas, Malásia, Sri Lanka, Maldivas). Quando aparece um voo **abaixo de 400 €**, recebes uma notificação no telemóvel com:
+Vigia voos de **ida e volta** de Lisboa, Porto, Faro, Madrid e Barcelona para a **Tailândia** e para as praias do Sudeste Asiático (Vietname, Bali, Filipinas, Malásia, Sri Lanka, Maldivas). Quando aparece um voo **abaixo de 400 €**, ou uma **promoção** (bem abaixo do preço habitual dessa rota nesse mês, mesmo que acima de 400 €), recebes uma notificação no telemóvel com:
 
 - o preço, as datas e o nome da companhia aérea (o tipo de avião a API não dá: vê-se ao abrir o voo no Google Flights);
 - até 5 datas para esse destino;
@@ -16,9 +16,10 @@ Corre sozinho no GitHub de 3 em 3 horas. Não precisas de servidor e não pagas 
    - entre **7 e 30 dias** de viagem;
    - partida daqui a 7 dias até 11 meses;
    - no máximo 2 escalas e 30 h de viagem em cada sentido.
-3. Envia um aviso por destino, com a **Tailândia primeiro** e com prioridade alta. Se for mesmo muito barato (≤ 340 €), a prioridade é máxima e o telemóvel toca mesmo em silêncio, se o permitires na app.
-4. O `estado.json` guarda o que já foi avisado, por isso o mesmo voo não volta a ser avisado. Só avisa outra vez se o preço descer mais 5 % ou mais.
-5. Se a pesquisa falhar toda (token errado, API em baixo), recebes um aviso ⚠️, no máximo um por dia.
+3. **Promoções:** o `estado.json` guarda, para cada rota e mês de partida (ex.: Madrid → Banguecoque em maio), o preço mais barato de cada dia dos últimos 30 dias. O preço habitual é a mediana desses dias. Se aparecer um voo **20 % ou mais abaixo do habitual**, recebes um aviso 🔥 Promoção, mesmo acima de 400 €. Só começa a funcionar quando há pelo menos 5 dias de histórico para essa rota e mês.
+4. Envia um aviso por destino, com a **Tailândia primeiro** e com prioridade alta. Se for mesmo muito barato (≤ 340 €) ou uma promoção na Tailândia, a prioridade é máxima e o telemóvel toca mesmo em silêncio, se o permitires na app.
+5. O `estado.json` guarda o que já foi avisado, por isso o mesmo voo não volta a ser avisado. Só avisa outra vez se o preço descer mais 5 % ou mais.
+6. Se a pesquisa falhar toda (token errado, API em baixo), recebes um aviso ⚠️, no máximo um por dia.
 
 > Os preços vêm de pesquisas feitas no Aviasales nos últimos dias, por isso o preço pode já ter mudado. Confirma sempre antes de comprar: é para isso que serve o botão do Google Flights.
 
@@ -66,6 +67,9 @@ Da API de dados do Aviasales (Travelpayouts): preços que o Aviasales encontrou 
 | `origens` | aeroportos de partida (código IATA: nome) |
 | `destinos` | lista de destinos: `"prioridade": true` = Tailândia; `"preco_max"` num destino muda o limite só para esse; `"ativo": false` desliga-o |
 | `por_mes` | `true` faz uma pesquisa por mês: encontra mais datas, mas são 12× mais pedidos |
+| `meses_partida` | só partidas nestes meses, ex.: `[5, 6]` = maio e junho; `[]` = todos |
+| `promo_desconto_pct` | quanto abaixo do preço habitual conta como promoção (%); `0` desliga |
+| `promo_dias_historico` | dias de histórico precisos para saber o preço habitual de uma rota e mês |
 
 Para acrescentar uma origem (ex.: Lyon), junta `"LYS": "Lyon"` às `origens`.
 

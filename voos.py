@@ -2,7 +2,8 @@
 """Alertas de voos baratos: Península Ibérica -> Tailândia e praias do Sudeste Asiático.
 
 Vai buscar os preços à API de dados do Aviasales (Travelpayouts, gratuita) e envia
-um aviso para o telemóvel pelo ntfy quando há ida e volta abaixo do preço máximo.
+um aviso para o telemóvel pelo ntfy quando há ida e volta abaixo do preço máximo,
+ou uma promoção: bem abaixo do preço habitual dessa rota nesse mês.
 
 Uso:
   python voos.py            procura e avisa (o normal, corre no GitHub Actions)
@@ -17,6 +18,7 @@ Variáveis de ambiente:
 
 import json
 import os
+import statistics
 import sys
 import time
 import urllib.error
@@ -29,6 +31,7 @@ CONFIG = os.path.join(AQUI, "config.json")
 ESTADO = os.path.join(AQUI, "estado.json")
 
 API = "https://api.travelpayouts.com/aviasales/v3/prices_for_dates"
+HISTORICO_DIAS = 30  # dias de preços guardados para saber o preço habitual
 MESES = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"]
 BANDEIRAS = {
     "Tailândia": "🇹🇭", "Vietname": "🇻🇳", "Indonésia": "🇮🇩", "Filipinas": "🇵🇭",
@@ -171,12 +174,19 @@ def pedir(params, token, tentativas=3):
     raise RuntimeError("demasiados pedidos (429) ou servidor em baixo")
 
 
+def mes_ok(cfg, d):
+    """A partida é num dos meses escolhidos (meses_partida vazio = todos)."""
+    meses = cfg.get("meses_partida") or []
+    return not meses or d.month in meses
+
+
 def meses_a_pesquisar(cfg, hoje):
     if not cfg.get("por_mes"):
         return [None]
     out, a, m = [], hoje.year, hoje.month
     for _ in range(int(cfg.get("partida_max_meses", 11)) + 1):
-        out.append(f"{a:04d}-{m:02d}")
+        if mes_ok(cfg, date(a, m, 1)):
+            out.append(f"{a:04d}-{m:02d}")
         m += 1
         if m > 12:
             a, m = a + 1, 1
@@ -249,7 +259,7 @@ def filtrar(bilhetes, cfg, hoje):
         dias = (volta - ida).days
         if dias < int(cfg.get("dias_min", 7)) or dias > int(cfg.get("dias_max", 30)):
             continue
-        if ida < p_min or ida > p_max:
+        if ida < p_min or ida > p_max or not mes_ok(cfg, ida):
             continue
         esc = max(int(b.get("transfers") or 0), int(b.get("return_transfers") or 0))
         if esc > esc_max:
@@ -290,14 +300,72 @@ def novas(ofertas, estado, cfg):
 def limpar_estado(estado, hoje):
     av = estado.get("avisados", {})
     estado["avisados"] = {k: v for k, v in av.items() if (dia(v.get("ida")) or hoje) >= hoje}
+    desde = (hoje - timedelta(days=HISTORICO_DIAS)).isoformat()
+    hist = {}
+    for k, dias in estado.get("historico", {}).items():
+        if k[-7:] < hoje.isoformat()[:7]:
+            continue  # o mês da partida já passou
+        dias = {d: p for d, p in dias.items() if d >= desde}
+        if dias:
+            hist[k] = dias
+    if hist or "historico" in estado:
+        estado["historico"] = hist
     return estado
+
+
+def sem_limite(cfg):
+    """O mesmo config sem limite de preço."""
+    return dict(cfg, preco_max=10 ** 9,
+                destinos=[{k: v for k, v in d.items() if k != "preco_max"} for d in cfg["destinos"]])
 
 
 def mais_baratos(bilhetes, cfg, hoje, n=8):
     """Os n mais baratos com as mesmas regras mas sem limite de preço (só para o registo)."""
-    sem_limite = dict(cfg, preco_max=10 ** 9,
-                      destinos=[{k: v for k, v in d.items() if k != "preco_max"} for d in cfg["destinos"]])
-    return filtrar(bilhetes, sem_limite, hoje)[:n]
+    return filtrar(bilhetes, sem_limite(cfg), hoje)[:n]
+
+
+# ---------------------------------------------------------------- promoções
+
+def rota_mes(f):
+    """'LIS-BKK-2027-05': a rota e o mês da partida, para comparar com o preço habitual."""
+    return f"{f['o']}-{f['d']}-{f['ida'][:7]}"
+
+
+def habituais(estado, cfg, hoje):
+    """Preço habitual de cada rota e mês: a mediana do mais barato de cada dia anterior.
+    Só conta com histórico de pelo menos promo_dias_historico dias."""
+    n_min = int(cfg.get("promo_dias_historico", 5))
+    out = {}
+    for k, dias in estado.get("historico", {}).items():
+        v = [p for d, p in dias.items() if d != hoje.isoformat()]
+        if len(v) >= n_min:
+            out[k] = statistics.median(v)
+    return out
+
+
+def guardar_historico(estado, todas, hoje):
+    """Junta ao histórico o mais barato de hoje de cada rota e mês."""
+    hist = estado.setdefault("historico", {})
+    hoje_txt = hoje.isoformat()
+    for f in todas:
+        dias = hist.setdefault(rota_mes(f), {})
+        if hoje_txt not in dias or f["preco"] < dias[hoje_txt]:
+            dias[hoje_txt] = f["preco"]
+
+
+def escolher(todas, cfg, refs):
+    """As que valem um aviso: abaixo do limite, ou promoção (X% abaixo do habitual).
+    As promoções levam 'habitual' com o preço habitual."""
+    destinos = {d["iata"]: d for d in cfg["destinos"]}
+    pct = float(cfg.get("promo_desconto_pct", 20)) / 100
+    out = []
+    for f in todas:
+        ref = refs.get(rota_mes(f))
+        if pct and ref and f["preco"] <= ref * (1 - pct):
+            out.append(dict(f, habitual=ref))
+        elif f["preco"] <= preco_max_de(cfg, destinos[f["d"]]):
+            out.append(f)
+    return out
 
 
 # ---------------------------------------------------------------- mensagens
@@ -349,6 +417,10 @@ def mensagens(lista, cfg, maximo=None):
         dest, b = destinos[k], fs[0]
         band = BANDEIRAS.get(dest.get("pais"), "✈️")
         titulo = f"{band} {dest['nome']} desde {euros(b['preco'])} ida e volta"
+        promo = bool(b.get("habitual"))
+        if promo:
+            desc = round(100 * (1 - b["preco"] / b["habitual"]))
+            titulo = f"🔥 Promoção: {titulo} (−{desc} %)"
         linhas = []
         for f in fs[:5]:
             ida, volta = dia(f["ida"]), dia(f["volta"])
@@ -358,6 +430,8 @@ def mensagens(lista, cfg, maximo=None):
                 t += f" · {nome_cia(f['cia'])}"
             if f.get("antes"):
                 t += f" (era {euros(f['antes'])})"
+            if f.get("habitual"):
+                t += f" · habitual ~{euros(f['habitual'])}"
             linhas.append(t)
         if len(fs) > 5:
             linhas.append(f"+ {len(fs) - 5} outras datas")
@@ -372,15 +446,15 @@ def mensagens(lista, cfg, maximo=None):
             "title": titulo,
             "message": "\n".join(linhas),
             "tags": ["airplane"],
-            "priority": 5 if dest.get("prioridade") and b["preco"] <= preco_max_de(cfg, dest) * 0.85
-            else (4 if dest.get("prioridade") else 3),
+            "priority": 5 if dest.get("prioridade") and (promo or b["preco"] <= preco_max_de(cfg, dest) * 0.85)
+            else (4 if dest.get("prioridade") or promo else 3),
             "click": b["link"] or link_google(b),
             "actions": acoes,
         })
     if maximo and len(msgs) > maximo:
         resto = msgs[maximo - 1:]
         msgs = msgs[:maximo - 1] + [{
-            "title": f"✈️ Mais {len(resto)} destinos abaixo do preço",
+            "title": f"✈️ Mais {len(resto)} destinos baratos ou em promoção",
             "message": "\n".join(m["title"] for m in resto),
             "tags": ["airplane"], "priority": 3,
         }]
@@ -411,14 +485,21 @@ def correr(cfg, estado, token, topico, servidor=None, hoje=None, simular=False,
     bilhetes, erros = buscar(cfg, token, hoje, log=log)
     if bilhetes:
         companhias(log=log)
-    ofertas = filtrar(bilhetes, cfg, hoje)
+    todas = filtrar(bilhetes, sem_limite(cfg), hoje)
+    refs = habituais(estado, cfg, hoje)
+    ofertas = escolher(todas, cfg, refs)
+    n_promo = sum(1 for f in ofertas if f.get("habitual"))
     lista = novas(ofertas, estado, cfg)
-    log(f"{len(bilhetes)} preços recebidos, {len(ofertas)} abaixo do limite, {len(lista)} novos.")
+    log(f"{len(bilhetes)} preços recebidos, {len(ofertas) - n_promo} abaixo do limite, "
+        f"{n_promo} em promoção, {len(lista)} novos.")
+    log(f"Preço habitual conhecido para {len(refs)} rotas/meses "
+        f"(precisa de {int(cfg.get('promo_dias_historico', 5))} dias de histórico).")
     for e in erros[:10]:
         log("  erro: " + e)
     log("Mais baratos agora (mesmo acima do limite):")
-    for f in mais_baratos(bilhetes, cfg, hoje):
-        log("  " + resumo(f, cfg))
+    for f in todas[:8]:
+        ref = refs.get(rota_mes(f))
+        log("  " + resumo(f, cfg) + (f" · habitual ~{euros(ref)}" if ref else ""))
 
     msgs = mensagens(lista, cfg, int(cfg.get("max_avisos_por_execucao", 6)))
     agora = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -442,9 +523,10 @@ def correr(cfg, estado, token, topico, servidor=None, hoje=None, simular=False,
         for f in lista:
             estado.setdefault("avisados", {})[f["chave"]] = {
                 "preco": f["preco"], "ida": f["ida"], "em": agora}
+        guardar_historico(estado, todas, hoje)
         estado["ultima_execucao"] = agora
-        estado["ultimo_resumo"] = {"precos": len(bilhetes), "abaixo": len(ofertas),
-                                   "novos": len(lista), "erros": len(erros)}
+        estado["ultimo_resumo"] = {"precos": len(bilhetes), "abaixo": len(ofertas) - n_promo,
+                                   "promocoes": n_promo, "novos": len(lista), "erros": len(erros)}
     return msgs, erros, bilhetes
 
 
@@ -462,9 +544,7 @@ def exemplo(cfg, token, topico, servidor=None, hoje=None, buscar=procurar, manda
         log("Sem preços para o exemplo." + (f" Erro: {erros[0]}" if erros else ""))
         return 1
     escolhido = (tai or lista)[0]
-    sem_limite = dict(cfg, preco_max=10 ** 9,
-                      destinos=[{k: v for k, v in d.items() if k != "preco_max"} for d in cfg["destinos"]])
-    m = mensagens([f for f in lista if f["d"] == escolhido["d"]], sem_limite)[0]
+    m = mensagens([f for f in lista if f["d"] == escolhido["d"]], sem_limite(cfg))[0]
     m["title"] = "(Exemplo) " + m["title"]
     m["priority"] = 3
     log(f">>> {m['title']}\n{m['message']}")
@@ -491,7 +571,8 @@ def main(argv):
         if not topico:
             sys.exit("Falta o NTFY_TOPICO")
         enviar({"title": "✈️ Alertas de voos ligados",
-                "message": f"Vais receber avisos de ida e volta abaixo de {euros(cfg['preco_max'])}.",
+                "message": f"Vais receber avisos de ida e volta abaixo de {euros(cfg['preco_max'])} "
+                           "e de promoções.",
                 "tags": ["white_check_mark"]}, topico, servidor)
         print("Notificação de teste enviada.")
         return 0

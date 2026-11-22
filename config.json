@@ -10,6 +10,9 @@
   "realerta_descida_pct": 5,
   "max_avisos_por_execucao": 6,
   "por_mes": true,
+  "meses_partida": [],
+  "promo_desconto_pct": 20,
+  "promo_dias_historico": 5,
 
   "origens": {
     "LIS": "Lisboa",
