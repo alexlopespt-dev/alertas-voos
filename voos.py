@@ -2,8 +2,8 @@
 """Alertas de voos baratos: Península Ibérica -> Tailândia e praias do Sudeste Asiático.
 
 Vai buscar os preços à API de dados do Aviasales (Travelpayouts, gratuita) e envia
-um aviso para o telemóvel pelo ntfy quando há ida e volta abaixo do preço máximo,
-ou uma promoção: bem abaixo do preço habitual dessa rota nesse mês.
+um aviso para o telemóvel pelo ntfy quando há ida e volta abaixo do preço máximo.
+As que estão bem abaixo do preço habitual dessa rota nesse mês vêm marcadas como promoção.
 
 Uso:
   python voos.py            procura e avisa (o normal, corre no GitHub Actions)
@@ -354,17 +354,16 @@ def guardar_historico(estado, todas, hoje):
 
 
 def escolher(todas, cfg, refs):
-    """As que valem um aviso: abaixo do limite, ou promoção (X% abaixo do habitual).
-    As promoções levam 'habitual' com o preço habitual."""
+    """As que valem um aviso: só abaixo do limite. As que também estão X% abaixo do
+    habitual são promoção e levam 'habitual' com o preço habitual."""
     destinos = {d["iata"]: d for d in cfg["destinos"]}
     pct = float(cfg.get("promo_desconto_pct", 20)) / 100
     out = []
     for f in todas:
+        if f["preco"] > preco_max_de(cfg, destinos[f["d"]]):
+            continue
         ref = refs.get(rota_mes(f))
-        if pct and ref and f["preco"] <= ref * (1 - pct):
-            out.append(dict(f, habitual=ref))
-        elif f["preco"] <= preco_max_de(cfg, destinos[f["d"]]):
-            out.append(f)
+        out.append(dict(f, habitual=ref) if pct and ref and f["preco"] <= ref * (1 - pct) else f)
     return out
 
 
@@ -454,7 +453,7 @@ def mensagens(lista, cfg, maximo=None):
     if maximo and len(msgs) > maximo:
         resto = msgs[maximo - 1:]
         msgs = msgs[:maximo - 1] + [{
-            "title": f"✈️ Mais {len(resto)} destinos baratos ou em promoção",
+            "title": f"✈️ Mais {len(resto)} destinos abaixo do preço",
             "message": "\n".join(m["title"] for m in resto),
             "tags": ["airplane"], "priority": 3,
         }]
@@ -490,8 +489,8 @@ def correr(cfg, estado, token, topico, servidor=None, hoje=None, simular=False,
     ofertas = escolher(todas, cfg, refs)
     n_promo = sum(1 for f in ofertas if f.get("habitual"))
     lista = novas(ofertas, estado, cfg)
-    log(f"{len(bilhetes)} preços recebidos, {len(ofertas) - n_promo} abaixo do limite, "
-        f"{n_promo} em promoção, {len(lista)} novos.")
+    log(f"{len(bilhetes)} preços recebidos, {len(ofertas)} abaixo do limite "
+        f"({n_promo} em promoção), {len(lista)} novos.")
     log(f"Preço habitual conhecido para {len(refs)} rotas/meses "
         f"(precisa de {int(cfg.get('promo_dias_historico', 5))} dias de histórico).")
     for e in erros[:10]:
@@ -525,7 +524,7 @@ def correr(cfg, estado, token, topico, servidor=None, hoje=None, simular=False,
                 "preco": f["preco"], "ida": f["ida"], "em": agora}
         guardar_historico(estado, todas, hoje)
         estado["ultima_execucao"] = agora
-        estado["ultimo_resumo"] = {"precos": len(bilhetes), "abaixo": len(ofertas) - n_promo,
+        estado["ultimo_resumo"] = {"precos": len(bilhetes), "abaixo": len(ofertas),
                                    "promocoes": n_promo, "novos": len(lista), "erros": len(erros)}
     return msgs, erros, bilhetes
 
@@ -571,8 +570,7 @@ def main(argv):
         if not topico:
             sys.exit("Falta o NTFY_TOPICO")
         enviar({"title": "✈️ Alertas de voos ligados",
-                "message": f"Vais receber avisos de ida e volta abaixo de {euros(cfg['preco_max'])} "
-                           "e de promoções.",
+                "message": f"Vais receber avisos de ida e volta abaixo de {euros(cfg['preco_max'])}.",
                 "tags": ["white_check_mark"]}, topico, servidor)
         print("Notificação de teste enviada.")
         return 0

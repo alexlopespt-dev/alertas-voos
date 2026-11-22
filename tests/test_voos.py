@@ -111,12 +111,18 @@ class Promocoes(unittest.TestCase):
         h["LIS-BKK-2026-11"]["2026-10-06"] = 450
         self.assertEqual(voos.habituais({"historico": h}, CFG, HOJE), {})
 
-    def test_promocao_acima_do_limite(self):
-        refs = {"LIS-BKK-2026-11": 600}
-        todas = voos.filtrar([bilhete(preco=470), bilhete(preco=490, volta="2026-11-25")],
+    def test_promocao_so_abaixo_do_limite(self):
+        refs = {"LIS-BKK-2026-11": 470}
+        todas = voos.filtrar([bilhete(preco=370), bilhete(preco=390, volta="2026-11-25"),
+                              bilhete(preco=300, d="HKT"), bilhete(preco=450, volta="2026-11-26")],
                              voos.sem_limite(CFG), HOJE)
-        r = voos.escolher(todas, CFG, refs)
-        self.assertEqual([(f["preco"], f.get("habitual")) for f in r], [(470, 600)])  # 490: só −18 %
+        r = voos.escolher(todas, CFG, {**refs, "LIS-HKT-2026-11": 1000})
+        # 370: −21 % promoção; 390: só −17 %; 300 em Phuket: promoção; 450: acima do limite
+        self.assertEqual([(f["preco"], f.get("habitual")) for f in r], [(300, 1000), (370, 470), (390, None)])
+
+    def test_promocao_acima_do_limite_nao_avisa(self):
+        todas = voos.filtrar([bilhete(preco=450)], voos.sem_limite(CFG), HOJE)
+        self.assertEqual(voos.escolher(todas, CFG, {"LIS-BKK-2026-11": 800}), [])
 
     def test_barato_sem_historico_continua_a_avisar(self):
         todas = voos.filtrar([bilhete(preco=350), bilhete(preco=450, volta="2026-11-25")],
@@ -124,13 +130,13 @@ class Promocoes(unittest.TestCase):
         self.assertEqual([f["preco"] for f in voos.escolher(todas, CFG, {})], [350])
 
     def test_mensagem_de_promocao(self):
-        f = voos.filtrar([bilhete(preco=450)], voos.sem_limite(CFG), HOJE)[0]
-        m = voos.mensagens([dict(f, habitual=600)], CFG)[0]
-        self.assertTrue(m["title"].startswith("🔥 Promoção: 🇹🇭 Banguecoque desde 450 €"), m["title"])
+        f = voos.filtrar([bilhete(preco=375)], CFG, HOJE)[0]
+        m = voos.mensagens([dict(f, habitual=500)], CFG)[0]
+        self.assertTrue(m["title"].startswith("🔥 Promoção: 🇹🇭 Banguecoque desde 375 €"), m["title"])
         self.assertIn("(−25 %)", m["title"])
-        self.assertIn("habitual ~600 €", m["message"])
+        self.assertIn("habitual ~500 €", m["message"])
         self.assertEqual(m["priority"], 5)
-        m = voos.mensagens([dict(f, d="DPS", habitual=600)], CFG)[0]
+        m = voos.mensagens([dict(f, d="DPS", habitual=500)], CFG)[0]
         self.assertEqual(m["priority"], 4)
 
     def test_guarda_o_mais_barato_de_cada_dia_e_limpa(self):
@@ -148,13 +154,13 @@ class Promocoes(unittest.TestCase):
         enviados = []
         for _ in range(2):
             voos.correr(CFG, estado, "tok", "canal", hoje=HOJE,
-                        buscar=lambda c, t, h, log: ([bilhete(preco=460)], []),
+                        buscar=lambda c, t, h, log: ([bilhete(preco=380)], []),
                         mandar=lambda m, t, s: enviados.append(m), log=lambda *a: None,
                         companhias=lambda log: None)
         self.assertEqual(len(enviados), 1)
         self.assertIn("Promoção", enviados[0]["title"])
         self.assertEqual(estado["ultimo_resumo"]["promocoes"], 1)
-        self.assertEqual(estado["historico"]["LIS-BKK-2026-11"]["2026-10-06"], 460)
+        self.assertEqual(estado["historico"]["LIS-BKK-2026-11"]["2026-10-06"], 380)
 
 
 class Mensagens(unittest.TestCase):
